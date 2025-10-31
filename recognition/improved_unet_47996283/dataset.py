@@ -34,3 +34,27 @@ class MRIDataset(Dataset):
         if self.target_transform:
             mask = self.target_transform(mask)
         return image, mask
+
+
+def get_dataloaders(batch_size=8, img_size=(256, 256)):
+    train_dir = "/home/groups/comp3710/OASIS/keras_png_slices_train"
+    train_masks_dir = "/home/groups/comp3710/OASIS/keras_png_slices_seg_train"
+    val_dir = "/home/groups/comp3710/OASIS/keras_png_slices_validate"
+    val_masks_dir = "/home/groups/comp3710/OASIS/keras_png_slices_seg_validate"
+
+    transform = transforms.Compose([
+        transforms.Resize(img_size),
+        transforms.ToTensor()
+    ])
+
+    train_dataset = MRIDataset(
+        train_dir, train_masks_dir, transform=transform, target_transform=transform
+    )
+    val_dataset = MRIDataset(
+        val_dir, val_masks_dir, transform=transform, target_transform=transform
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=1)
+
+    return train_loader, val_loader
