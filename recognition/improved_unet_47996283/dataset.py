@@ -4,6 +4,8 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 class MRIDataset(Dataset):
@@ -92,3 +94,52 @@ def denormalize_image(tensor):
     tensor = tensor * std + mean
     # Ensure the values stay between [0,1]
     return torch.clamp(tensor, 0, 1)
+
+
+def show_examples(dataset, title="MRI Dataset Examples", n=3, save_path=None):
+    """
+    Displays example MRI slices and their corresponding segmentation masks
+    from the given dataset.
+    :param save_path: the image path to save the example dataset images
+    :param dataset: instance of MRIDataset containing MRI images and masks
+    :param title: title for the plot
+    :param n: number of examples
+    :return:
+    """
+    fig, axes = plt.subplots(2, n, figsize=(12, 6))
+    fig.suptitle(title, fontsize=16, fontweight='bold')
+
+    for i in range(n):
+        image, mask = dataset[i]
+
+        # Denormalize the grayscale MRI image for visualization
+        img_show = denormalize_image(image)
+
+        # Convert to numpy array for plotting
+        img_display = img_show.squeeze(0).numpy()  # [1,H,W] -> [H,W]
+        mask_display = mask.squeeze(0).numpy()
+
+        # Show MRI Image
+        axes[0, i].imshow(img_display, cmap='gray')
+        axes[0, i].set_title(f'MRI Slice {i + 1}', fontweight='bold')
+        axes[0, i].axis('off')
+
+        # Show Corresponding Mask
+        axes[1, i].imshow(mask_display, cmap='Reds', vmin=0, vmax=1)
+        axes[1, i].set_title(f'Segmentation Mask {i + 1}', fontweight='bold')
+        axes[1, i].axis('off')
+
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved to {save_path}")
+    else:
+        plt.show()
+
+
+# Show examples of the MRI Dataset with their segmentation masks
+tl, vl = get_dataloaders(batch_size=4)
+td = tl.dataset
+vd = vl.dataset
+show_examples(td, title="MRI Training Dataset + Binary Masks", n=3, save_path="train_examples.png")
+show_examples(vd, title="MRI Validation Dataset + Binary Masks", n=3, save_path="validation_examples.png")
