@@ -66,7 +66,8 @@ def get_dataloaders(batch_size=8, img_size=(256, 256)):
     mask_transform = transforms.Compose([
         transforms.Resize(img_size),
         transforms.ToTensor(),
-
+        transforms.Lambda(lambda x: (x * 3).round().long()),  # Convert to 0,1,2,3
+        transforms.Lambda(lambda x: torch.clamp(x, 0, 3)),  # Ensure valid range
     ])
 
     train_dataset = MRIDataset(
@@ -109,6 +110,11 @@ def show_examples(dataset, title="MRI Dataset Examples", n=3, save_path=None):
     fig, axes = plt.subplots(2, n, figsize=(12, 6))
     fig.suptitle(title, fontsize=16, fontweight='bold')
 
+    # Define colors for each class
+    from matplotlib.colors import ListedColormap
+    colors = ['black', 'blue', 'green', 'red']  # Background, CSF, Gray Matter, White Matter
+    cmap = ListedColormap(colors)
+
     for i in range(n):
         image, mask = dataset[i]
 
@@ -124,14 +130,26 @@ def show_examples(dataset, title="MRI Dataset Examples", n=3, save_path=None):
         axes[0, i].set_title(f'MRI Slice {i + 1}', fontweight='bold')
         axes[0, i].axis('off')
 
-        # Show Corresponding Mask
-        axes[1, i].imshow(mask_display, cmap='Reds', vmin=0, vmax=1)
+        # Show Corresponding Mask with 4-class colors
+        axes[1, i].imshow(mask_display, cmap=cmap, vmin=0, vmax=3)
         axes[1, i].set_title(f'Segmentation Mask {i + 1}', fontweight='bold')
         axes[1, i].axis('off')
 
+    # Add legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='black', label='Background'),
+        Patch(facecolor='blue', label='CSF'),
+        Patch(facecolor='green', label='Gray Matter'),
+        Patch(facecolor='red', label='White Matter')
+    ]
+    fig.legend(handles=legend_elements, loc='lower center', ncol=4,
+               bbox_to_anchor=(0.5, 0.02), fontsize=10)
+
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.15)
     if save_path:
-        plt.savefig(save_path)
+        plt.savefig(save_path, bbox_inches='tight')
         print(f"Plot saved to {save_path}")
     else:
         plt.show()
@@ -139,6 +157,11 @@ def show_examples(dataset, title="MRI Dataset Examples", n=3, save_path=None):
 
 # Show examples of the MRI Dataset with their segmentation masks
 tl, vl = get_dataloaders(batch_size=4)
+for images, masks in tl:
+    print(f"Image range: {images.min():.3f} to {images.max():.3f}")
+    print(f"Mask unique values: {torch.unique(masks)}")
+    print(f"Mask value counts: {torch.bincount(masks.flatten().long())}")
+    break
 td = tl.dataset
 vd = vl.dataset
 show_examples(td, title="MRI Training Dataset + Binary Masks", n=3, save_path="train_examples.png")
