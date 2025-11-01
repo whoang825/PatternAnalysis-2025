@@ -9,7 +9,7 @@ class UNet(nn.Module):
     CNN for MRI Segmentation, outputting a segmentation mask representing the probability
     that the pixel belongs to the target region (e.g. brain tissue, tumor).
     """
-    def __init__(self, in_channels=1, out_channels=4, base_filters=32, dropout_p=0.3):
+    def __init__(self, in_channels=1, out_channels=4, base_filters=64, dropout_p=0.3):
         super().__init__()
 
         # Encoder (Downsampling)
@@ -18,12 +18,16 @@ class UNet(nn.Module):
         self.enc2 = self._conv_block(base_filters, base_filters * 2, dropout_p)  # 128 x 128
         self.enc3 = self._conv_block(base_filters * 2, base_filters * 4, dropout_p)  # 64 x 64
         self.enc4 = self._conv_block(base_filters * 4, base_filters * 8, dropout_p)  # 32 x 32
+        self.enc5 = self._conv_block(base_filters * 8, base_filters * 16, dropout_p)
 
         # Bottleneck
         # Deepest layers capturing abstract features
-        self.bottleneck = self._conv_block(base_filters * 8, base_filters * 16, dropout_p)
+        self.bottleneck = self._conv_block(base_filters * 16, base_filters * 32, dropout_p)
 
         # Decoder (Upsampling)
+        self.up5 = self._up_block(base_filters * 32, base_filters * 16)
+        self.dec5 = self._conv_block(base_filters * 32, base_filters * 16, dropout_p)
+
         self.up4 = self._up_block(base_filters * 16, base_filters * 8)
         self.dec4 = self._conv_block(base_filters * 16, base_filters * 8, dropout_p)
 
@@ -43,20 +47,19 @@ class UNet(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
 
     def _conv_block(self, in_ch, out_ch, dropout_p=0.3):
-        """Conv block: Conv -> BN -> LeakyReLU -> Dropout -> Conv -> BN -> LeakyReLU -> Dropout
+        """Conv block: Conv -> BN -> ReLU -> Dropout -> Conv -> BN -> ReLU -> Dropout
         To extract features from the input image.
         First layer extracts basic features like edges and corners.
         Second layer extracts more complex, high-level features.
         """
         return nn.Sequential(
-            # padding=1 ensures output size remains same
             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_ch),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.ReLU(inplace=True),  # ReLU for faster convergence
             nn.Dropout2d(dropout_p),
             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_ch),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.ReLU(inplace=True),
             nn.Dropout2d(dropout_p)
         )
 
@@ -76,15 +79,16 @@ class UNet(nn.Module):
         e2 = self.enc2(self.pool(e1))
         e3 = self.enc3(self.pool(e2))
         e4 = self.enc4(self.pool(e3))
+        e5 = self.enc5(self.pool(e4))
 
         # Bottleneck (global features of the image)
-        b = self.bottleneck(self.pool(e4))
+        b = self.bottleneck(self.pool(e5))
 
         # Decoder with skip connections
-        # Upsampling feature map for segmentation
-        d4 = self.up4(b)
-        # Concatenates the corresponding encoder output to compare the high-res details with
-        # low-res details to reconstruct low-level features from the encoder
+        d5 = self.up5(b)
+        d5 = self.dec5(torch.cat([d5, e5], dim=1))
+
+        d4 = self.up4(d5)
         d4 = self.dec4(torch.cat([d4, e4], dim=1))
 
         d3 = self.up3(d4)
@@ -110,36 +114,70 @@ class DiceLoss(nn.Module):
     Dice Coefficient = (2 * |X ∩ Y|) / (|X| + |Y|)
     """
 
-    def __init__(self, num_classes, smooth=1e-6):
+    def __init__(self, num_classes, class_weights=None, smooth=1e-6):
         super().__init__()
         self.num_classes = num_classes
         self.smooth = smooth
+        if class_weights is not None:
+            self.class_weights = class_weights
+        else:
+            self.class_weights = torch.ones(num_classes)
 
     def forward(self, predictions, targets):
         """
         predictions: raw logits [B, C, H, W]
-        targets: integer labels [B, H, W]
+        targets: integer labels [B, 1, H, W]
         """
         # Convert to probabilities
         probs = F.softmax(predictions, dim=1)
 
-        dice_loss = 0
-        # Ensure targets are long integers
+        # Ensure targets are long integers and remove channel dimension
         targets = targets.squeeze(1).long()
+
         # One-hot encode targets: [B, C, H, W]
         targets_onehot = F.one_hot(targets, num_classes=self.num_classes).permute(0, 3, 1, 2).float()
 
+        total_dice = 0.0
+        total_weight = 0.0
+
+        # Move class weights to correct device
+        class_weights = self.class_weights.to(predictions.device)
+
         # Compute Dice per class
         for c in range(self.num_classes):
-            pred_c = probs[:, c]
-            target_c = targets_onehot[:, c]
+            pred_c = probs[:, c]  # [B, H, W]
+            target_c = targets_onehot[:, c]  # [B, H, W]
 
             intersection = (pred_c * target_c).sum(dim=(1, 2))  # Sum over H, W
             union = pred_c.sum(dim=(1, 2)) + target_c.sum(dim=(1, 2))
-            dice = (2 * intersection + self.smooth) / (union + self.smooth)
-            dice_loss += dice.mean()  # Average across each batch
 
-        dice_coeff = dice_loss / self.num_classes
-        dice_loss = 1 - dice_coeff
-        return dice_loss
+            # Dice coefficient for this class
+            dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
 
+            # Apply class weighting
+            weighted_dice = dice.mean() * class_weights[c]
+            total_dice += weighted_dice
+            total_weight += class_weights[c]
+
+        # Normalize by total weight
+        dice_coeff = total_dice / total_weight
+        return 1.0 - dice_coeff
+
+
+class CombinedLoss(nn.Module):
+    """
+    Combined Dice + CrossEntropy loss for better optimization
+    """
+
+    def __init__(self, num_classes, class_weights=None, dice_weight=0.7, ce_weight=0.3, smooth=1e-6):
+        super().__init__()
+        self.dice_loss = DiceLoss(num_classes, class_weights, smooth)
+        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights)
+        self.dice_weight = dice_weight
+        self.ce_weight = ce_weight
+
+    def forward(self, predictions, targets):
+        dice_loss = self.dice_loss(predictions, targets)
+        ce_loss = self.ce_loss(predictions, targets.squeeze(1).long())
+
+        return self.dice_weight * dice_loss + self.ce_weight * ce_loss
