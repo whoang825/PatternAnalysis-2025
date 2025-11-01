@@ -10,9 +10,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 
-def show_epoch_predictions(model, dataset, epoch, n=3, denormalize_fn=denormalize_image):
+def show_epoch_predictions(model, dataset, epoch, n=3, num_classes=4, denormalize_fn=denormalize_image):
     """
     Visualize model predictions after a specific epoch for multi-class segmentation.
+    :param num_classes: number of classes for the image segmentation.
     :param model: Trained UNet model.
     :param dataset: Dataset object (MRI + mask pairs).
     :param epoch: Current epoch number.
@@ -21,44 +22,59 @@ def show_epoch_predictions(model, dataset, epoch, n=3, denormalize_fn=denormaliz
     """
     model.eval()
     fig, axes = plt.subplots(3, n, figsize=(14, 10))
-    fig.suptitle(f"MRI Segmentation Predictions After Epoch {epoch}", fontsize=16, fontweight='bold')
+    fig.suptitle(f"Brain Tissue Segmentation - Epoch {epoch}", fontsize=16, fontweight='bold')
+
+    # Define colors for each class
+    from matplotlib.colors import ListedColormap
+    colors = ['black', 'blue', 'green', 'red']  # Background, CSF, Gray Matter, White Matter
+    cmap = ListedColormap(colors)
 
     with torch.no_grad():
         for i in range(n):
-            # Load one sample
             image, true_mask = dataset[i]
-            image = image.unsqueeze(0).to(device)  # Add batch dimension
+            image = image.unsqueeze(0).to(device)
 
             # Forward pass (softmax for multi-class)
             logits = model(image)
-            probs = torch.softmax(logits, dim=1)[0]  # [C, H, W]
-            pred_mask = torch.argmax(probs, dim=0).cpu().numpy()  # Class indices
+            probs = torch.softmax(logits, dim=1)[0]  # [4, H, W]
+            pred_mask = torch.argmax(probs, dim=0).cpu().numpy()  # [H, W]
 
             # Prepare ground truth
-            true_mask_np = true_mask.numpy()
+            true_mask_np = true_mask.squeeze().numpy()
 
             # Denormalize for display
-            img_show = denormalize_fn(image[0].cpu()) if denormalize_fn else image[0].cpu()
-            img_display = img_show.permute(1, 2, 0).numpy()  # CHW -> HWC
+            img_show = denormalize_fn(image[0].cpu())
+            img_display = img_show.permute(1, 2, 0).numpy()
 
             # Plot original image
             axes[0, i].imshow(img_display, cmap='gray')
-            axes[0, i].set_title(f"Original {i + 1}", fontweight='bold')
+            axes[0, i].set_title(f"MRI {i + 1}", fontweight='bold')
             axes[0, i].axis('off')
 
             # Plot ground truth mask
-            axes[1, i].imshow(true_mask_np, cmap='tab10', vmin=0, vmax=dataset.num_classes - 1)
+            axes[1, i].imshow(true_mask_np, cmap=cmap, vmin=0, vmax=num_classes - 1)
             axes[1, i].set_title("Ground Truth", fontweight='bold')
             axes[1, i].axis('off')
 
             # Plot predicted mask
-            axes[2, i].imshow(pred_mask, cmap='tab10', vmin=0, vmax=dataset.num_classes - 1)
-            acc = np.mean(pred_mask == true_mask_np)
-            axes[2, i].set_title(f"Prediction (Acc: {acc:.3f})", fontweight='bold')
+            axes[2, i].imshow(pred_mask, cmap=cmap, vmin=0, vmax=num_classes - 1)
+            axes[2, i].set_title(f"Prediction Masks", fontweight='bold')
             axes[2, i].axis('off')
 
+    # Add legend
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='black', label='Background'),
+        Patch(facecolor='blue', label='CSF'),
+        Patch(facecolor='green', label='Gray Matter'),
+        Patch(facecolor='red', label='White Matter')
+    ]
+    fig.legend(handles=legend_elements, loc='lower center', ncol=4,
+               bbox_to_anchor=(0.5, 0.02), fontsize=10)
+
     plt.tight_layout()
-    plt.show()
+    plt.subplots_adjust(bottom=0.15)
+    plt.savefig(f"predictions_epoch{epoch}.png", bbox_inches='tight')
     model.train()  # Back to training mode
 
 
@@ -79,10 +95,10 @@ def plot_loss(train_losses, val_losses=None, metric_name='Dice Coefficient'):
     plt.ylabel(metric_name, fontsize=12)
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.show()
+    plt.savefig("loss_plot.png")
 
 
-def train(model, train_loader, val_dataset, num_classes=4, epochs=20, lr=1e-3, visualize_every=1):
+def train(model, train_loader, val_dataset, num_classes=4, epochs=20, lr=1e-3, visualize_every=5):
     """
     Train the U-Net model for multi-class MRI segmentation.
     :param model: U-Net model from modules.py
@@ -117,8 +133,8 @@ def train(model, train_loader, val_dataset, num_classes=4, epochs=20, lr=1e-3, v
 
             epoch_loss += loss.item()
 
-            # Print periodic updates (every 10 batches)
-            if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(train_loader):
+            # Print periodic updates (every 200 batches)
+            if (batch_idx + 1) % 200 == 0 or (batch_idx + 1) == len(train_loader):
                 print(f"  Batch {batch_idx + 1}/{len(train_loader)} | Loss: {loss.item():.4f}")
 
         avg_loss = epoch_loss / len(train_loader)
@@ -127,11 +143,14 @@ def train(model, train_loader, val_dataset, num_classes=4, epochs=20, lr=1e-3, v
 
         # Visualize predictions every few epochs
         if (epoch + 1) % visualize_every == 0:
-            show_epoch_predictions(model, val_dataset, epoch + 1, n=3)
+            show_epoch_predictions(model, val_dataset, epoch + 1, n=3, num_classes=num_classes)
 
     print("Training Complete!")
     return train_losses
 
 
 train_loader, val_loader = get_dataloaders(batch_size=8, img_size=(256, 256))
+model = UNet(in_channels=1, out_channels=4)
+train_losses = train(model, train_loader, val_loader.dataset, num_classes=4, epochs=20, lr=1e-3)
+plot_loss(train_losses, metric_name="Dice Loss")
 
