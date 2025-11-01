@@ -70,3 +70,37 @@ class UNet(nn.Module):
             nn.Conv2d(in_ch, out_ch, kernel_size=1)
         )
 
+    def forward(self, x):
+        """Forward pass of the Improved U-Net.
+        Skip connections is used to reconstruct low-level features from the encoder
+        """
+        # Encoder (extract the deepest features)
+        e1 = self.enc1(x)
+        e2 = self.enc2(self.pool(e1))
+        e3 = self.enc3(self.pool(e2))
+        e4 = self.enc4(self.pool(e3))
+
+        # Bottleneck (global features of the image)
+        b = self.bottleneck(self.pool(e4))
+
+        # Decoder with skip connections
+        # Upsampling feature map for segmentation
+        d4 = self.up4(b)
+        # Concatenates the corresponding encoder output to compare the high-res details with
+        # low-res details to reconstruct low-level features from the encoder
+        d4 = self.dec4(torch.cat([d4, e4], dim=1))
+
+        d3 = self.up3(d4)
+        d3 = self.dec3(torch.cat([d3, e3], dim=1))
+
+        d2 = self.up2(d3)
+        d2 = self.dec2(torch.cat([d2, e2], dim=1))
+
+        d1 = self.up1(d2)
+        d1 = self.dec1(torch.cat([d1, e1], dim=1))
+
+        # Final output
+        out = self.final_conv(d1)
+        out = self.sigmoid(out)
+
+        return out
