@@ -118,21 +118,28 @@ class DiceLoss(nn.Module):
     def forward(self, predictions, targets):
         """
         predictions: raw logits [B, C, H, W]
-        targets: integer labels [B, H, W] (0..C-1)
+        targets: integer labels [B, H, W]
         """
         # Convert to probabilities
         probs = F.softmax(predictions, dim=1)
 
         dice_loss = 0
+        # Ensure targets are long integers
+        targets = targets.squeeze(1).long()
+        # One-hot encode targets: [B, C, H, W]
+        targets_onehot = F.one_hot(targets, num_classes=self.num_classes).permute(0, 3, 1, 2).float()
+
+        # Compute Dice per class
         for c in range(self.num_classes):
-            # Create binary mask for class c
-            # Isolate predictions and targets for each class
-            pred_c = probs[:, c, :, :]
-            target_c = (targets == c).float()
-            # Compute intersection and Dice score
-            intersection = (pred_c * target_c).sum()
-            dice_c = (2. * intersection + self.smooth) / (pred_c.sum() + target_c.sum() + self.smooth)
-            dice_loss += 1 - dice_c
-        # Compute average of dice loss across each class
-        return dice_loss / self.num_classes
+            pred_c = probs[:, c]
+            target_c = targets_onehot[:, c]
+
+            intersection = (pred_c * target_c).sum(dim=(1, 2))  # Sum over H, W
+            union = pred_c.sum(dim=(1, 2)) + target_c.sum(dim=(1, 2))
+            dice = (2 * intersection + self.smooth) / (union + self.smooth)
+            dice_loss += dice.mean()  # Average across each batch
+
+        dice_coeff = dice_loss / self.num_classes
+        dice_loss = 1 - dice_coeff
+        return dice_loss
 
