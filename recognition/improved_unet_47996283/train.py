@@ -60,5 +60,25 @@ def show_epoch_predictions(model, dataset, epoch, n=3, denormalize_fn=denormaliz
     model.train()  # Back to training mode
 
 
+def plot_loss(train_losses, val_losses=None, metric_name='Dice Coefficient'):
+    """
+    Plot training and validation loss/metric curves.
+    :param train_losses: List of training loss values (or metrics).
+    :param val_losses: List of validation loss/metric values.
+    :param metric_name: Display name for the y-axis.
+    """
+    plt.figure(figsize=(8, 5))
+    plt.plot(train_losses, 'bo-', label='Training', linewidth=2, markersize=6)
+    if val_losses is not None:
+        plt.plot(val_losses, 'ro-', label='Validation', linewidth=2, markersize=6)
+
+    plt.title(f"{metric_name} Over Epochs", fontsize=14, fontweight='bold')
+    plt.xlabel("Epoch", fontsize=12)
+    plt.ylabel(metric_name, fontsize=12)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
+
+
 train_loader, val_loader = get_dataloaders(batch_size=8, img_size=(256, 256))
 
