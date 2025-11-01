@@ -100,3 +100,39 @@ class UNet(nn.Module):
         out = self.final_conv(d1)
 
         return out
+
+
+class DiceLoss(nn.Module):
+    """
+    Dice Loss for binary segmentation:
+    Minimizing Dice Loss = Maximising Dice Coefficient (how well two sets overlap).
+    Dice Loss = 1 - Dice Coefficient.
+    Dice Coefficient = (2 * |X ∩ Y|) / (|X| + |Y|)
+    """
+
+    def __init__(self, num_classes, smooth=1e-6):
+        super().__init__()
+        self.num_classes = num_classes
+        self.smooth = smooth
+
+    def forward(self, predictions, targets):
+        """
+        predictions: raw logits [B, C, H, W]
+        targets: integer labels [B, H, W] (0..C-1)
+        """
+        # Convert to probabilities
+        probs = F.softmax(predictions, dim=1)
+
+        dice_loss = 0
+        for c in range(self.num_classes):
+            # Create binary mask for class c
+            # Isolate predictions and targets for each class
+            pred_c = probs[:, c, :, :]
+            target_c = (targets == c).float()
+            # Compute intersection and Dice score
+            intersection = (pred_c * target_c).sum()
+            dice_c = (2. * intersection + self.smooth) / (pred_c.sum() + target_c.sum() + self.smooth)
+            dice_loss += 1 - dice_c
+        # Compute average of dice loss across each class
+        return dice_loss / self.num_classes
+
