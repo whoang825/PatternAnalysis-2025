@@ -7,9 +7,9 @@ class UNet(nn.Module):
     """
     U-Net with BatchNorm, LeakyReLU, Dropout, and Sigmoid activation:
     CNN for MRI Segmentation, outputting a segmentation mask representing the probability
-    that the pixel belongs to the target region (e.g. brain tissue, tumor)
+    that the pixel belongs to the target region (e.g. brain tissue, tumor).
     """
-    def __init__(self, in_channels=1, out_channels=1, base_filters=32, dropout_p=0.3):
+    def __init__(self, in_channels=1, out_channels=4, base_filters=32, dropout_p=0.3):
         super().__init__()
 
         # Encoder (Downsampling)
@@ -38,7 +38,6 @@ class UNet(nn.Module):
 
         # Final output layer
         self.final_conv = nn.Conv2d(base_filters, out_channels, kernel_size=1)
-        self.sigmoid = nn.Sigmoid()
 
         # Pooling for encoder
         self.pool = nn.MaxPool2d(2, 2)
@@ -62,13 +61,11 @@ class UNet(nn.Module):
         )
 
     def _up_block(self, in_ch, out_ch):
-        """Upsample using bilinear interpolation followed by a 1x1 conv to reduce channels.
+        """Upsampling block using ConvTranspose2d for learnable upsampling to reduce channels.
         Restore the spatial resolution of the feature maps to localize features precisely.
         """
-        return nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
-            nn.Conv2d(in_ch, out_ch, kernel_size=1)
-        )
+        # Improves reconstruction accuracy and feature recovery
+        return nn.ConvTranspose2d(in_ch, out_ch, kernel_size=2, stride=2)
 
     def forward(self, x):
         """Forward pass of the Improved U-Net.
@@ -99,8 +96,7 @@ class UNet(nn.Module):
         d1 = self.up1(d2)
         d1 = self.dec1(torch.cat([d1, e1], dim=1))
 
-        # Final output
+        # Final output (B, 4, H, W)
         out = self.final_conv(d1)
-        out = self.sigmoid(out)
 
         return out
