@@ -1,7 +1,9 @@
 import torch
 from dataset import get_dataloaders, denormalize_image
+from modules import UNet, DiceLoss
 import matplotlib.pyplot as plt
 import numpy as np
+import torch.optim as optim
 
 # Device setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -78,6 +80,57 @@ def plot_loss(train_losses, val_losses=None, metric_name='Dice Coefficient'):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.show()
+
+
+def train(model, train_loader, val_dataset, num_classes=4, epochs=20, lr=1e-3, visualize_every=1):
+    """
+    Train the U-Net model for multi-class MRI segmentation.
+    :param model: U-Net model from modules.py
+    :param train_loader: DataLoader for training data
+    :param val_dataset: Dataset for visualization/testing
+    :param num_classes: Number of segmentation classes
+    :param epochs: Number of training epochs
+    :param lr: Learning rate
+    :param visualize_every: Interval (in epochs) to visualize predictions
+    """
+    model.to(device)
+    criterion = DiceLoss(num_classes=num_classes)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    train_losses = []
+
+    print(f"Starting Training with {num_classes}-Class Segmentation (Softmax + Dice Loss)...")
+    for epoch in range(epochs):
+        model.train()
+        epoch_loss = 0.0
+
+        # Training loop
+        for batch_idx, (images, masks) in enumerate(train_loader):
+            images, masks = images.to(device), masks.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(images)
+
+            loss = criterion(outputs, masks)
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+
+            # Print periodic updates (every 10 batches)
+            if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(train_loader):
+                print(f"  Batch {batch_idx + 1}/{len(train_loader)} | Loss: {loss.item():.4f}")
+
+        avg_loss = epoch_loss / len(train_loader)
+        train_losses.append(avg_loss)
+        print(f"Epoch {epoch + 1}/{epochs} — Average Loss: {avg_loss:.4f}")
+
+        # Visualize predictions every few epochs
+        if (epoch + 1) % visualize_every == 0:
+            show_epoch_predictions(model, val_dataset, epoch + 1, n=3)
+
+    print("Training Complete!")
+    return train_losses
 
 
 train_loader, val_loader = get_dataloaders(batch_size=8, img_size=(256, 256))
