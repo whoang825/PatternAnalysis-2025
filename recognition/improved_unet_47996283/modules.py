@@ -47,7 +47,7 @@ class UNet(nn.Module):
         self.pool = nn.MaxPool2d(2, 2)
 
     def _conv_block(self, in_ch, out_ch, dropout_p=0.3):
-        """Conv block: Conv -> BN -> ReLU -> Dropout -> Conv -> BN -> ReLU -> Dropout
+        """Conv block: Conv -> BN -> LeakyReLU -> Dropout -> Conv -> BN -> LeakyReLU -> Dropout
         To extract features from the input image.
         First layer extracts basic features like edges and corners.
         Second layer extracts more complex, high-level features.
@@ -55,11 +55,11 @@ class UNet(nn.Module):
         return nn.Sequential(
             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),  # ReLU for faster convergence
+            nn.LeakyReLU(inplace=True),
             nn.Dropout2d(dropout_p),
             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
             nn.Dropout2d(dropout_p)
         )
 
