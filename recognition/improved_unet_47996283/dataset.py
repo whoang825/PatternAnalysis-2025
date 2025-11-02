@@ -59,6 +59,17 @@ def get_dataloaders(batch_size=8, img_size=(256, 256)):
     # Normalise the images for more stable training and resize the images and masks
     transform = transforms.Compose([
         transforms.Resize(img_size),
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomRotation(15),
+        transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+        transforms.ColorJitter(brightness=0.3, contrast=0.3),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5])
+    ])
+
+    # Validation transform WITHOUT augmentation
+    val_transform = transforms.Compose([
+        transforms.Resize(img_size),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
@@ -74,7 +85,7 @@ def get_dataloaders(batch_size=8, img_size=(256, 256)):
         train_dir, train_masks_dir, transform=transform, target_transform=mask_transform
     )
     val_dataset = MRIDataset(
-        val_dir, val_masks_dir, transform=transform, target_transform=mask_transform
+        val_dir, val_masks_dir, transform=val_transform, target_transform=mask_transform
     )
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
