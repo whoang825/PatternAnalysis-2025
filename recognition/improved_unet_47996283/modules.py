@@ -9,7 +9,7 @@ class UNet(nn.Module):
     CNN for MRI Segmentation, outputting a segmentation mask representing the probability
     that the pixel belongs to the target region (e.g. brain tissue, tumor).
     """
-    def __init__(self, in_channels=1, out_channels=4, base_filters=64, dropout_p=0.3):
+    def __init__(self, in_channels=1, out_channels=4, base_filters=64, dropout_p=0.2):
         super().__init__()
 
         # Encoder (Downsampling)
@@ -114,14 +114,10 @@ class DiceLoss(nn.Module):
     Dice Coefficient = (2 * |X ∩ Y|) / (|X| + |Y|)
     """
 
-    def __init__(self, num_classes, class_weights=None, smooth=1e-6):
+    def __init__(self, num_classes, smooth=1e-6):
         super().__init__()
         self.num_classes = num_classes
         self.smooth = smooth
-        if class_weights is not None:
-            self.class_weights = class_weights
-        else:
-            self.class_weights = torch.ones(num_classes)
 
     def forward(self, predictions, targets):
         """
@@ -137,11 +133,7 @@ class DiceLoss(nn.Module):
         # One-hot encode targets: [B, C, H, W]
         targets_onehot = F.one_hot(targets, num_classes=self.num_classes).permute(0, 3, 1, 2).float()
 
-        total_dice = 0.0
-        total_weight = 0.0
-
-        # Move class weights to correct device
-        class_weights = self.class_weights.to(predictions.device)
+        dice_loss = 0.0
 
         # Compute Dice per class
         for c in range(self.num_classes):
@@ -153,15 +145,9 @@ class DiceLoss(nn.Module):
 
             # Dice coefficient for this class
             dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
+            dice_loss += (1.0 - dice.mean())
 
-            # Apply class weighting
-            weighted_dice = dice.mean() * class_weights[c]
-            total_dice += weighted_dice
-            total_weight += class_weights[c]
-
-        # Normalize by total weight
-        dice_coeff = total_dice / total_weight
-        return 1.0 - dice_coeff
+        return dice_loss / self.num_classes
 
 
 class CombinedLoss(nn.Module):
@@ -169,10 +155,10 @@ class CombinedLoss(nn.Module):
     Combined Dice + CrossEntropy loss for better optimization
     """
 
-    def __init__(self, num_classes, class_weights=None, dice_weight=0.7, ce_weight=0.3, smooth=1e-6):
+    def __init__(self, num_classes, dice_weight=0.7, ce_weight=0.3, smooth=1e-6):
         super().__init__()
-        self.dice_loss = DiceLoss(num_classes, class_weights, smooth)
-        self.ce_loss = nn.CrossEntropyLoss(weight=class_weights)
+        self.dice_loss = DiceLoss(num_classes, smooth)
+        self.ce_loss = nn.CrossEntropyLoss()
         self.dice_weight = dice_weight
         self.ce_weight = ce_weight
 
