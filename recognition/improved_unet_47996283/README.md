@@ -63,6 +63,8 @@ the Rangpur cluster and training, validation and testing was also done on the Ra
 Rangpur Path: /home/groups/comp3710/OASIS)
 
 ### Example Usage for loading the Datasets:
+For the training dataset, the images were randomly augmented to prevent overfitting and improve training
+performance for the segmentation task. Validation set was not altered.
 ```
 tl, vl = get_dataloaders(batch_size=4)
 train_dataset = tl.dataset
@@ -73,15 +75,19 @@ show_examples(val_dataset, title="MRI Validation Dataset + Binary Masks", n=3, s
 ![OASIS MRI Training Dataset + Masks](/recognition/improved_unet_47996283/images/train_examples.png)
 ![OASIS MRI Validation Dataset + Masks](/recognition/improved_unet_47996283/images/validation_examples.png)
 
+
 ### Example Usage for the training:
+For the training, the model prediction masks were plotted every 10 epochs to observe the performance of the model
+explicitly. The loss plot was plotted at the end of the training to evaluate the segmentation of the model.
 ```
 from dataset import get_dataloaders
 from model import UNet
 from train import train
 
-train_loader, val_loader = get_dataloaders(batch_size=8)
+train_loader, val_loader = get_dataloaders(batch_size=8, img_size=(256, 256))
 model = UNet(in_channels=1, out_channels=4)
-train(model, train_loader, val_loader.dataset, epochs=20, lr=1e-3)
+train_losses = train(model, train_loader, val_loader.dataset, num_classes=4, epochs=100, lr=1e-4, visualize_every=10)
+plot_loss(train_losses, metric_name="Dice Loss")
 ```
 
 ## References
