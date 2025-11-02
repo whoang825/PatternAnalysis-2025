@@ -186,9 +186,6 @@ def train(model, train_loader, val_loader, num_classes=4, epochs=100, lr=1e-4, v
 
             epoch_loss += loss.item()
 
-            if (batch_idx + 1) % 200 == 0:
-                print(f"  Batch {batch_idx + 1}/{len(train_loader)} | Loss: {loss.item():.4f}")
-
         avg_loss = epoch_loss / len(train_loader)
         losses.append(avg_loss)
 
@@ -204,7 +201,6 @@ def train(model, train_loader, val_loader, num_classes=4, epochs=100, lr=1e-4, v
         if val_dice > best_dice:
             best_dice = val_dice
             torch.save(model.state_dict(), 'best_model.pth')
-            print(f"  💾 New best model saved! Dice: {best_dice:.4f}")
 
         # Visualize predictions
         if (epoch + 1) % visualize_every == 0:
