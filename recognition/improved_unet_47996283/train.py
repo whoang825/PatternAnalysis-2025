@@ -159,11 +159,6 @@ def train(model, train_loader, val_loader, num_classes=4, epochs=100, lr=1e-4, v
     criterion = CombinedLoss(num_classes=num_classes, class_weights=class_weights)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
 
-    # Adjust learning rate scheduling
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', factor=0.5, patience=3
-    )
-
     losses = []
     best_dice = 0.0
 
@@ -191,7 +186,6 @@ def train(model, train_loader, val_loader, num_classes=4, epochs=100, lr=1e-4, v
 
         # Calculate validation Dice score
         val_dice = evaluate_dice(model, val_loader, num_classes)
-        scheduler.step(val_dice)
 
         # Print learning rate
         current_lr = optimizer.param_groups[0]['lr']
